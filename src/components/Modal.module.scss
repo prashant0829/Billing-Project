@@ -1,0 +1,5 @@
+.backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(10, 22, 18, .46); backdrop-filter: blur(4px); display: flex; justify-content: flex-end; }
+.modal { width: min(520px, 100%); height: 100%; background: white; box-shadow: -18px 0 50px rgba(15, 35, 28, .16); animation: slide .22s ease-out; overflow-y: auto; header { padding: 30px 32px 24px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; h2 { font-size: 24px; } p { color: var(--muted); margin-top: 5px; } button { background: var(--soft); border: 0; border-radius: 9px; width: 38px; height: 38px; cursor: pointer; } } }
+.wide { width: min(680px, 100%); }
+.body { padding: 28px 32px; }
+@keyframes slide { from { transform: translateX(40px); opacity: 0; } }
