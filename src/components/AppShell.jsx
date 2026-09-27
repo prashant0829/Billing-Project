@@ -17,8 +17,8 @@ const links = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/bills", label: "Bills", icon: Receipt },
-  { href: "/dev-tools", label: "Dev tools", icon: Database },
 ];
+const adminLinks = [{ href: "/dev-tools", label: "Dev tools", icon: Database }];
 
 export default function AppShell({ children, title, subtitle, action }) {
   const pathname = usePathname(); const router = useRouter();
@@ -32,7 +32,7 @@ export default function AppShell({ children, title, subtitle, action }) {
   return <div className={styles.shell}>
     <aside className={styles.sidebar}>
       <Link href="/dashboard" className={styles.wordmark}><span><ReceiptText size={20}/></span> Ledgerly</Link>
-      <nav>{links.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={pathname.startsWith(href) ? styles.active : ""}><Icon size={19}/>{label}</Link>)}</nav>
+      <nav>{[...links, ...(isSuperAdmin ? adminLinks : [])].map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={pathname.startsWith(href) ? styles.active : ""}><Icon size={19}/>{label}</Link>)}</nav>
       <div className={styles.account}>
         <ThemeToggle/>
         <div className={styles.identity}>

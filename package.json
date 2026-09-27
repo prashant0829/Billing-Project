@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "emulators": "firebase emulators:start",
+    "dev:emulated": "NEXT_PUBLIC_USE_FIREBASE_EMULATOR=true next dev"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.12.0",

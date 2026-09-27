@@ -80,6 +80,59 @@ export async function deleteEntry(uid, collectionName, id, previous, reason) {
   });
 }
 
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+async function commitBatched(deletions = [], writes = []) {
+  const ops = [...deletions.map((op) => ({ type: "delete", ...op })), ...writes.map((op) => ({ type: "set", ...op }))];
+  for (const group of chunkArray(ops, 450)) {
+    const batch = writeBatch(db);
+    group.forEach((op) => { op.type === "delete" ? batch.delete(op.ref) : batch.set(op.ref, op.data); });
+    await batch.commit();
+  }
+}
+
+export async function deleteCustomersCascade(uid, customers, reason) {
+  const customerIds = customers.map((c) => c.id);
+  const billDocs = [];
+  for (const chunk of chunkArray(customerIds, 10)) {
+    const snapshot = await getDocs(query(userCollection(uid, "bills"), where("customerId", "in", chunk)));
+    billDocs.push(...snapshot.docs);
+  }
+  const creditDocs = [];
+  for (const chunk of chunkArray(billDocs.map((item) => item.id), 10)) {
+    const snapshot = await getDocs(query(userCollection(uid, "credits"), where("billId", "in", chunk)));
+    creditDocs.push(...snapshot.docs);
+  }
+  const deletions = [
+    ...creditDocs.map((item) => ({ ref: item.ref })),
+    ...billDocs.map((item) => ({ ref: item.ref })),
+    ...customerIds.map((id) => ({ ref: doc(db, "users", uid, "customers", id) })),
+  ];
+  const writes = customers.map((customer) => ({
+    ref: doc(userCollection(uid, "audits")),
+    data: auditPayload("customer", customer.id, "purged", reason, { before: customer, after: null }),
+  }));
+  await commitBatched(deletions, writes);
+  return { customerCount: customers.length, billCount: billDocs.length, creditCount: creditDocs.length };
+}
+
+export async function deleteUsersCascade(uids) {
+  const deletions = [];
+  for (const uid of uids) {
+    for (const name of ["customers", "bills", "credits", "audits"]) {
+      const snapshot = await getDocs(userCollection(uid, name));
+      snapshot.docs.forEach((item) => deletions.push({ ref: item.ref }));
+    }
+    deletions.push({ ref: doc(db, "users", uid) });
+  }
+  await commitBatched(deletions);
+  return { userCount: uids.length, docCount: deletions.length };
+}
+
 const SEED_DESCRIPTIONS = ["Website revamp", "Consulting retainer", "Server hosting", "Logo design", "Monthly maintenance", "API integration", "Mobile app build", "SEO audit", "Content writing", "Ad campaign setup"];
 const SEED_STATUSES = ["pending", "paid", "cancelled"];
 

@@ -78,7 +78,7 @@ export default function BillDetail() {
     {!credits.length && <EmptyState icon={<Banknote/>} title="No payments yet" description="Record the first installment to start this bill’s transaction trail."/>}
     <Modal open={modal?.type === "credit"} onClose={() => setModal(null)} title="Record a payment" subtitle="Add a manual installment against this bill."><EntryForm type="credit" onSubmit={saveCredit}/></Modal>
     <Modal open={!!editing} onClose={() => setEditing(null)} title={`Correct ${editing?.type || "entry"}`} subtitle="The original and corrected values will remain in history.">{editing && <EntryForm type={editing.type} initial={editing.item} showReason onSubmit={saveEdit}/>}</Modal>
-    <ConfirmDialog open={!!deleting} onCancel={() => setDeleting(null)} onConfirm={confirmDelete} busy={deleteBusy} title={`Delete ${deleting?.type || "entry"}`} subtitle="It will be removed from the ledger; the record and audit trail are kept." itemLabel={deleting?.type === "bill" ? "bill" : "payment"} reason={deleteReason} onReasonChange={setDeleteReason}/>
+    <ConfirmDialog open={!!deleting} onCancel={() => setDeleting(null)} onConfirm={confirmDelete} busy={deleteBusy} title={`Delete ${deleting?.type || "entry"}`} subtitle="It will be removed from the ledger; the record and audit trail are kept." itemLabel={deleting?.type === "bill" ? "this bill" : "this payment"} reason={deleteReason} onReasonChange={setDeleteReason}/>
     <HistoryDrawer open={!!history} onClose={() => setHistory(null)} title={history?.title} audits={audits} entityIds={history?.ids || []} amountOnly={history?.amountOnly}/>
   </AppShell>;
 }

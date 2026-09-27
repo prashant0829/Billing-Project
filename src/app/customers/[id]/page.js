@@ -66,7 +66,7 @@ export default function CustomerDetail() {
     <Modal open={modal?.type === "credit"} onClose={() => setModal(null)} title="Record a payment" subtitle="Add a manual installment against this bill."><EntryForm type="credit" onSubmit={saveCredit}/></Modal>
     <Modal open={modal?.type === "customer"} onClose={() => setModal(null)} title="Correct customer details" subtitle="Every edit is recorded; a reason is optional."><CustomerForm initial={customer} showReason submitLabel="Save correction" onSubmit={saveCustomer}/></Modal>
     <Modal open={!!editing} onClose={() => setEditing(null)} title={`Correct ${editing?.type || "entry"}`} subtitle="The original and corrected values will remain in history.">{editing && <EntryForm type={editing.type} initial={editing.item} showReason onSubmit={saveEdit}/>}</Modal>
-    <ConfirmDialog open={!!deleting} onCancel={() => setDeleting(null)} onConfirm={confirmDelete} busy={deleteBusy} title="Delete bill" subtitle="It will be removed from the ledger; the record and audit trail are kept." itemLabel="bill" reason={deleteReason} onReasonChange={setDeleteReason}/>
+    <ConfirmDialog open={!!deleting} onCancel={() => setDeleting(null)} onConfirm={confirmDelete} busy={deleteBusy} title="Delete bill" subtitle="It will be removed from the ledger; the record and audit trail are kept." itemLabel="this bill" reason={deleteReason} onReasonChange={setDeleteReason}/>
     <HistoryDrawer open={!!history} onClose={() => setHistory(null)} title={history?.title} audits={audits} entityIds={history?.ids || []} amountOnly={history?.amountOnly}/>
   </AppShell>;
 }

@@ -6,13 +6,20 @@ import Button from "./Button";
 import styles from "./Table.module.scss";
 
 const PAGE_SIZE = 50;
+const CHECKBOX_WIDTH = 44;
 
 function readHiddenColumns(tableId) {
   if (!tableId || typeof window === "undefined") return [];
   try { return JSON.parse(localStorage.getItem(`billkaro:table:${tableId}`) || "[]"); } catch { return []; }
 }
 
-export default function Table({ tableId, columns, rows, rowKey, emptyState, pageSize = PAGE_SIZE }) {
+function HeaderCheckbox({ checked, indeterminate, onChange }) {
+  const ref = useRef(null);
+  useEffect(() => { if (ref.current) ref.current.indeterminate = indeterminate; }, [indeterminate]);
+  return <input ref={ref} type="checkbox" checked={checked} onChange={onChange}/>;
+}
+
+export default function Table({ tableId, columns, rows, rowKey, emptyState, pageSize = PAGE_SIZE, selectable = false, bulkActions }) {
   const [sort, setSort] = useState(null);
   const [page, setPage] = useState(1);
   const [hidden, setHidden] = useState(() => new Set(readHiddenColumns(tableId)));
@@ -20,8 +27,9 @@ export default function Table({ tableId, columns, rows, rowKey, emptyState, page
   const viewRef = useRef(null);
   const [draftFilters, setDraftFilters] = useState({});
   const [appliedFilters, setAppliedFilters] = useState({});
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [prevRows, setPrevRows] = useState(rows);
-  if (rows !== prevRows) { setPrevRows(rows); setPage(1); }
+  if (rows !== prevRows) { setPrevRows(rows); setPage(1); setSelectedKeys(new Set()); }
 
   useEffect(() => {
     function onClickOutside(event) { if (viewRef.current && !viewRef.current.contains(event.target)) setViewOpen(false); }
@@ -43,6 +51,14 @@ export default function Table({ tableId, columns, rows, rowKey, emptyState, page
       if (!prev || prev.key !== column.key) return { key: column.key, direction: "asc" };
       if (prev.direction === "asc") return { key: column.key, direction: "desc" };
       return null;
+    });
+  }
+
+  function toggleRow(key) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
     });
   }
 
@@ -83,11 +99,23 @@ export default function Table({ tableId, columns, rows, rowKey, emptyState, page
   const rangeStart = sortedRows.length ? (currentPage - 1) * pageSize + 1 : 0;
   const rangeEnd = Math.min(currentPage * pageSize, sortedRows.length);
 
+  const pageSelectedCount = pageRows.filter((row) => selectedKeys.has(rowKey(row))).length;
+  const allPageSelected = pageRows.length > 0 && pageSelectedCount === pageRows.length;
+  function toggleSelectAllOnPage() {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) pageRows.forEach((row) => next.delete(rowKey(row)));
+      else pageRows.forEach((row) => next.add(rowKey(row)));
+      return next;
+    });
+  }
+  const selectedRows = useMemo(() => selectable && selectedKeys.size ? sortedRows.filter((row) => selectedKeys.has(rowKey(row))) : [], [selectable, selectedKeys, sortedRows, rowKey]);
+
   const pinnedLeft = useMemo(() => {
-    const offsets = {}; let acc = 0;
+    const offsets = {}; let acc = selectable ? CHECKBOX_WIDTH : 0;
     for (const column of visibleColumns) { if (column.pinned) { offsets[column.key] = acc; acc += column.width || 140; } }
     return offsets;
-  }, [visibleColumns]);
+  }, [visibleColumns, selectable]);
 
   return <div className={styles.wrapper}>
     {!!filterableColumns.length && <div className={styles.filterBar}>
@@ -109,18 +137,25 @@ export default function Table({ tableId, columns, rows, rowKey, emptyState, page
     </div>}
     <div className={styles.toolbar}>
       <span className={styles.count}>{sortedRows.length} {sortedRows.length === 1 ? "record" : "records"}</span>
-      <div className={styles.viewControl} ref={viewRef}>
-        <Button variant="secondary" size="sm" icon={<SlidersHorizontal size={14}/>} onClick={() => setViewOpen((v) => !v)}>View</Button>
-        {viewOpen && <div className={styles.viewPanel}>
-          {columns.filter((c) => c.hideable !== false).map((c) => (
-            <label key={c.key}><input type="checkbox" checked={!hidden.has(c.key)} onChange={() => toggleColumn(c.key)}/> {c.label}</label>
-          ))}
-        </div>}
+      <div className={styles.toolbarActions}>
+        {selectedRows.length > 0 && bulkActions?.(selectedRows)}
+        <div className={styles.viewControl} ref={viewRef}>
+          <Button variant="secondary" size="sm" icon={<SlidersHorizontal size={14}/>} onClick={() => setViewOpen((v) => !v)}>View</Button>
+          {viewOpen && <div className={styles.viewPanel}>
+            {columns.filter((c) => c.hideable !== false).map((c) => (
+              <label key={c.key}><input type="checkbox" checked={!hidden.has(c.key)} onChange={() => toggleColumn(c.key)}/> {c.label}</label>
+            ))}
+          </div>}
+        </div>
       </div>
     </div>
     <div className={styles.scroll}>
       <table className={styles.table}>
-        <thead><tr>{visibleColumns.map((column) => {
+        <thead><tr>
+          {selectable && <th className={styles.pinned} style={{ width: CHECKBOX_WIDTH, left: 0 }}>
+            <HeaderCheckbox checked={allPageSelected} indeterminate={pageSelectedCount > 0 && !allPageSelected} onChange={toggleSelectAllOnPage}/>
+          </th>}
+          {visibleColumns.map((column) => {
           const isSorted = sort?.key === column.key;
           return <th key={column.key} className={column.pinned ? styles.pinned : ""} style={{ textAlign: column.align || "left", width: column.width, left: pinnedLeft[column.key] }}>
             {column.sortable ? <button className={styles.sortButton} onClick={() => toggleSort(column)}>
@@ -129,11 +164,17 @@ export default function Table({ tableId, columns, rows, rowKey, emptyState, page
             </button> : column.label}
           </th>;
         })}</tr></thead>
-        <tbody>{pageRows.map((row) => (
-          <tr key={rowKey(row)}>{visibleColumns.map((column) => (
-            <td key={column.key} className={column.pinned ? styles.pinned : ""} style={{ textAlign: column.align || "left", width: column.width, left: pinnedLeft[column.key] }}>{column.render(row)}</td>
-          ))}</tr>
-        ))}</tbody>
+        <tbody>{pageRows.map((row) => {
+          const key = rowKey(row);
+          return <tr key={key}>
+            {selectable && <td className={styles.pinned} style={{ width: CHECKBOX_WIDTH, left: 0 }}>
+              <input type="checkbox" checked={selectedKeys.has(key)} onChange={() => toggleRow(key)}/>
+            </td>}
+            {visibleColumns.map((column) => (
+              <td key={column.key} className={column.pinned ? styles.pinned : ""} style={{ textAlign: column.align || "left", width: column.width, left: pinnedLeft[column.key] }}>{column.render(row)}</td>
+            ))}
+          </tr>;
+        })}</tbody>
       </table>
     </div>
     {!sortedRows.length && emptyState}

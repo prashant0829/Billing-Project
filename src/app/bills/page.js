@@ -52,6 +52,6 @@ export default function BillsPage() {
     <Table tableId="bills" columns={columns} rows={rows} rowKey={({ bill }) => bill.id} emptyState={<EmptyState card={false} icon={<ReceiptText/>} title="No bills found" description="Add a bill or change the search and status filter."/>}/>
     <Modal open={modal?.type === "add"} onClose={() => setModal(null)} title="Add a bill" subtitle="Pick a customer and record a new bill for them."><EntryForm type="bill" customers={customers} onSubmit={saveBill}/></Modal>
     <Modal open={!!editing} onClose={() => setEditing(null)} title="Correct bill" subtitle="The original and corrected values will remain in history.">{editing && <EntryForm type="bill" initial={{ ...editing, billId: editing.billId || customersById[editing.customerId]?.billId || "" }} customers={customers} showReason onSubmit={saveEdit}/>}</Modal>
-    <ConfirmDialog open={!!deleting} onCancel={() => setDeleting(null)} onConfirm={confirmDelete} busy={deleteBusy} title="Delete bill" subtitle="It will be removed from the ledger; the record and audit trail are kept." itemLabel="bill" reason={deleteReason} onReasonChange={setDeleteReason}/>
+    <ConfirmDialog open={!!deleting} onCancel={() => setDeleting(null)} onConfirm={confirmDelete} busy={deleteBusy} title="Delete bill" subtitle="It will be removed from the ledger; the record and audit trail are kept." itemLabel="this bill" reason={deleteReason} onReasonChange={setDeleteReason}/>
   </AppShell>;
 }
