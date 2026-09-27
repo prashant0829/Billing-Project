@@ -7,6 +7,7 @@ import {
 } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
+import Button from "@/components/ui/Button";
 import styles from "./login.module.scss";
 
 export default function LoginPage() {
@@ -53,7 +54,7 @@ export default function LoginPage() {
       </section>
       <section className={styles.panel}>
         <form onSubmit={submit} className={styles.form}>
-          <span className="eyebrow">SECURE ACCESS</span>
+          <span className="eyebrow">Secure access</span>
           <h2>{mode === "login" ? "Welcome back" : "Create your account"}</h2>
           <label>
             Email address
@@ -77,22 +78,18 @@ export default function LoginPage() {
             />
           </label>
           {error && <p className="error">{error}</p>}
-          <button className="button primary" disabled={busy}>
-            {busy
-              ? "Please wait…"
-              : mode === "login"
-                ? "Sign in"
-                : "Create account"}
-          </button>
-          <button
+          <Button busy={busy} busyLabel="Please wait…">
+            {mode === "login" ? "Sign in" : "Create account"}
+          </Button>
+          <Button
             type="button"
-            className="text-button"
+            variant="ghost"
             onClick={() => setMode(mode === "login" ? "register" : "login")}
           >
             {mode === "login"
               ? "New here? Create an account"
               : "Already registered? Sign in"}
-          </button>
+          </Button>
         </form>
       </section>
     </main>

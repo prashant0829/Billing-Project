@@ -1,7 +1,7 @@
-import { addDoc, collection, doc, getDocs, orderBy, query, runTransaction, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDocs, orderBy, query, runTransaction, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-const userCollection = (uid, name) => collection(db, "users", uid, name);
+export const userCollection = (uid, name) => collection(db, "users", uid, name);
 const auditPayload = (entityType, entityId, action, reason, changes) => ({
   entityType, entityId, action, reason, changes, createdAt: serverTimestamp(),
 });
@@ -78,6 +78,75 @@ export async function deleteEntry(uid, collectionName, id, previous, reason) {
     tx.update(ref, { deleted: true, deletedAt: serverTimestamp(), deleteReason: reason || "" });
     tx.set(auditRef, auditPayload(collectionName.slice(0, -1), id, "deleted", reason, { before: previous, after: null }));
   });
+}
+
+const SEED_DESCRIPTIONS = ["Website revamp", "Consulting retainer", "Server hosting", "Logo design", "Monthly maintenance", "API integration", "Mobile app build", "SEO audit", "Content writing", "Ad campaign setup"];
+const SEED_STATUSES = ["pending", "paid", "cancelled"];
+
+function randomFrom(list) { return list[Math.floor(Math.random() * list.length)]; }
+function randomDateWithinDays(days) {
+  const date = new Date();
+  date.setDate(date.getDate() - Math.floor(Math.random() * days));
+  return date.toISOString().slice(0, 10);
+}
+
+export async function seedTestData(uid, { customerCount = 2, billCount = 200 } = {}) {
+  const customerRefs = [];
+  for (let i = 0; i < customerCount; i++) {
+    const ref = await addDoc(userCollection(uid, "customers"), {
+      name: `Test Customer ${String.fromCharCode(65 + i)}`,
+      primaryContact: `9000000${String(10 + i).padStart(3, "0")}`,
+      secondaryContact: "", seedTag: true,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    customerRefs.push(ref);
+  }
+
+  const billBatch = writeBatch(db);
+  const seededBills = [];
+  for (let i = 0; i < billCount; i++) {
+    const customerRef = customerRefs[i % customerRefs.length];
+    const billRef = doc(userCollection(uid, "bills"));
+    const amount = Math.round((100 + Math.random() * 9900) * 100) / 100;
+    billBatch.set(billRef, {
+      customerId: customerRef.id,
+      billId: `TEST-${String(i + 1).padStart(4, "0")}`,
+      description: randomFrom(SEED_DESCRIPTIONS),
+      amount, status: randomFrom(SEED_STATUSES),
+      billDate: randomDateWithinDays(180), seedTag: true,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    seededBills.push({ id: billRef.id, amount });
+  }
+  await billBatch.commit();
+
+  const creditBatch = writeBatch(db);
+  seededBills.forEach(({ id, amount }) => {
+    if (Math.random() < 0.5) {
+      const paidAmount = Math.round(amount * (0.3 + Math.random() * 0.7) * 100) / 100;
+      creditBatch.set(doc(userCollection(uid, "credits")), {
+        billId: id, amount: paidAmount, paidAt: randomDateWithinDays(90),
+        note: "Test payment", seedTag: true,
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+      });
+    }
+  });
+  await creditBatch.commit();
+
+  return { customerCount: customerRefs.length, billCount: seededBills.length };
+}
+
+export async function clearTestData(uid) {
+  const [customers, bills, credits] = await Promise.all(["customers", "bills", "credits"].map(async (name) => {
+    const snapshot = await getDocs(query(userCollection(uid, name), where("seedTag", "==", true)));
+    return snapshot.docs;
+  }));
+  const batch = writeBatch(db);
+  customers.forEach((item) => batch.delete(item.ref));
+  bills.forEach((item) => batch.delete(item.ref));
+  credits.forEach((item) => batch.delete(item.ref));
+  await batch.commit();
+  return { customerCount: customers.length, billCount: bills.length, creditCount: credits.length };
 }
 
 export async function getLedger(uid) {

@@ -1,80 +1,73 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, Banknote, Edit3, History, Plus, ReceiptText, Trash2 } from "lucide-react";
+import { useSelector } from "react-redux";
+import { ArrowLeft, ArrowUpRight, Edit3, History, Plus, ReceiptText, Trash2 } from "lucide-react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Modal from "@/components/Modal";
 import CustomerForm from "@/components/CustomerForm";
 import EntryForm from "@/components/EntryForm";
+import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import EmptyState from "@/components/ui/EmptyState";
+import RowActions from "@/components/ui/RowActions";
+import Table from "@/components/ui/Table";
 import { useAuth } from "@/context/AuthContext";
-import { addCredit, createBill, deleteEntry, getLedger, listCustomers, updateCustomer, updateEntry } from "@/services/billingService";
+import { addCredit, createBill, deleteEntry, updateCustomer, updateEntry } from "@/services/billingService";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 
 export default function CustomerDetail() {
   const { id } = useParams(); const { effectiveUid } = useAuth();
-  const [customer, setCustomer] = useState(null); const [ledger, setLedger] = useState({ bills: [], credits: [], audits: [] });
+  const { customers, bills: allBills, credits: allCredits, audits } = useSelector((s) => s.data);
+  const customer = useMemo(() => customers.find((p) => p.id === id), [customers, id]);
   const [modal, setModal] = useState(null); const [editing, setEditing] = useState(null); const [history, setHistory] = useState(null);
   const [deleting, setDeleting] = useState(null); const [deleteReason, setDeleteReason] = useState(""); const [deleteBusy, setDeleteBusy] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const load = useCallback(async () => { if (!effectiveUid) return; const [people, all] = await Promise.all([listCustomers(effectiveUid), getLedger(effectiveUid)]); setCustomer(people.find((p) => p.id === id)); setLedger(all); }, [id, effectiveUid]);
-  useEffect(() => { if (effectiveUid) Promise.all([listCustomers(effectiveUid), getLedger(effectiveUid)]).then(([people, all]) => { setCustomer(people.find((p) => p.id === id)); setLedger(all); }); }, [id, effectiveUid]);
-  const bills = useMemo(() => ledger.bills.filter((b) => b.customerId === id).sort((a, b) => entryTime(b.createdAt) - entryTime(a.createdAt)), [id, ledger.bills]);
-  const visibleBills = useMemo(() => bills.filter((bill) => statusFilter === "all" || (bill.status || "pending") === statusFilter), [bills, statusFilter]);
+  const bills = useMemo(() => allBills.filter((b) => b.customerId === id).sort((a, b) => entryTime(b.createdAt) - entryTime(a.createdAt)), [id, allBills]);
   const billIds = useMemo(() => bills.map((b) => b.id), [bills]);
-  const credits = useMemo(() => ledger.credits.filter((c) => billIds.includes(c.billId)).sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt))), [billIds, ledger.credits]);
+  const credits = useMemo(() => allCredits.filter((c) => billIds.includes(c.billId)).sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt))), [billIds, allCredits]);
   const total = bills.reduce((s, b) => s + Number(b.amount), 0); const paid = credits.reduce((s, c) => s + Number(c.amount), 0);
-  async function saveBill(values) { await createBill(effectiveUid, id, values); setModal(null); await load(); }
-  async function saveCredit(values) { await addCredit(effectiveUid, modal.billId, values); setModal(null); await load(); }
-  async function saveCustomer(values, reason) { await updateCustomer(effectiveUid, id, customer, values, reason); setModal(null); await load(); }
-  async function saveEdit(values, reason) { const collectionName = editing.type === "bill" ? "bills" : "credits"; await updateEntry(effectiveUid, collectionName, editing.item.id, editing.item, values, reason); setEditing(null); await load(); }
+  async function saveBill(values) { await createBill(effectiveUid, id, values); setModal(null); }
+  async function saveCredit(values) { await addCredit(effectiveUid, modal.billId, values); setModal(null); }
+  async function saveCustomer(values, reason) { await updateCustomer(effectiveUid, id, customer, values, reason); setModal(null); }
+  async function saveEdit(values, reason) { const collectionName = editing.type === "bill" ? "bills" : "credits"; await updateEntry(effectiveUid, collectionName, editing.item.id, editing.item, values, reason); setEditing(null); }
   async function confirmDelete() {
     setDeleteBusy(true);
-    try { await deleteEntry(effectiveUid, "bills", deleting.item.id, deleting.item, deleteReason); setDeleting(null); setDeleteReason(""); await load(); } finally { setDeleteBusy(false); }
+    try { await deleteEntry(effectiveUid, "bills", deleting.item.id, deleting.item, deleteReason); setDeleting(null); setDeleteReason(""); } finally { setDeleteBusy(false); }
   }
+  const columns = [
+    { key: "billId", label: "Bill ID", pinned: true, width: 120, sortable: true, filterable: true, filterValue: (bill) => bill.billId || customer?.billId || "", sortValue: (bill) => bill.billId || customer?.billId || "", render: (bill) => <span className="table-code">{bill.billId || customer?.billId || "-"}</span> },
+    { key: "bill", label: "Bill", pinned: true, width: 190, sortable: true, filterable: true, filterValue: (bill) => bill.description, sortValue: (bill) => bill.description, render: (bill) => <div className="entity-cell"><span className="person-icon compact"><ReceiptText size={16}/></span>{bill.description}</div> },
+    { key: "date", label: "Date", width: 110, sortable: true, sortValue: (bill) => bill.billDate, render: (bill) => formatDate(bill.billDate) },
+    { key: "status", label: "Status", width: 100, sortable: true, filterable: true, filterType: "select", filterOptions: [{ value: "pending", label: "Pending" }, { value: "paid", label: "Paid" }, { value: "cancelled", label: "Cancelled" }], filterValue: (bill) => bill.status || "pending", sortValue: (bill) => bill.status || "pending", render: (bill) => <Badge tone={bill.status || "pending"}/> },
+    { key: "installments", label: "Installments", align: "right", width: 110, sortable: true, sortValue: (bill) => credits.filter((c) => c.billId === bill.id).length, render: (bill) => credits.filter((c) => c.billId === bill.id).length },
+    { key: "billed", label: "Billed", align: "right", width: 110, sortable: true, sortValue: (bill) => Number(bill.amount), render: (bill) => formatCurrency(bill.amount) },
+    { key: "paid", label: "Paid", align: "right", width: 110, sortable: true, sortValue: (bill) => credits.filter((c) => c.billId === bill.id).reduce((s, c) => s + Number(c.amount), 0), render: (bill) => <span className="green">{formatCurrency(credits.filter((c) => c.billId === bill.id).reduce((s, c) => s + Number(c.amount), 0))}</span> },
+    { key: "left", label: "Left", align: "right", width: 110, sortable: true, sortValue: (bill) => Number(bill.amount) - credits.filter((c) => c.billId === bill.id).reduce((s, c) => s + Number(c.amount), 0), render: (bill) => formatCurrency(Number(bill.amount) - credits.filter((c) => c.billId === bill.id).reduce((s, c) => s + Number(c.amount), 0)) },
+    { key: "history", label: "History", width: 90, render: (bill) => <button className="text-button" onClick={() => setHistory({ title: bill.description, ids: [bill.id], amountOnly: true })}><History size={15}/> View</button> },
+    { key: "actions", label: "Actions", align: "right", width: 130, hideable: false, render: (bill) => {
+      const billWithId = { ...bill, billId: bill.billId || customer.billId || "" };
+      return <RowActions actions={[
+        { label: "Edit", icon: <Edit3 size={15}/>, onClick: () => setEditing({ type: "bill", item: billWithId }) },
+        { label: "Delete", icon: <Trash2 size={15}/>, variant: "danger", onClick: () => setDeleting({ item: billWithId }) },
+        { label: "Open", icon: <ArrowUpRight size={15}/>, href: `/bills/${bill.id}` },
+      ]}/>;
+    } },
+  ];
   if (!customer) return <AppShell title="Customer ledger" subtitle="Loading customer..."><div className="spinner" /></AppShell>;
-  return <AppShell title={customer.name} subtitle={customer.primaryContact} action={<button className="button secondary" onClick={() => setModal({ type: "customer" })}><Edit3 size={17}/> Edit details</button>}>
+  return <AppShell title={customer.name} subtitle={customer.primaryContact} action={<Button variant="secondary" icon={<Edit3 size={17}/>} onClick={() => setModal({ type: "customer" })}>Edit details</Button>}>
     <Link href="/customers" className="back-link"><ArrowLeft size={16}/> All customers</Link>
     <section className="ledger-summary"><article><span>Total billed</span><strong>{formatCurrency(total)}</strong></article><article><span>Total paid</span><strong className="green">{formatCurrency(paid)}</strong></article><article className="balance"><span>Balance left</span><strong>{formatCurrency(total - paid)}</strong></article></section>
-    <div className="section-heading"><div><h2>Bills & installments</h2><p>Add payments against a specific bill and follow its timeline.</p></div><div className="section-actions"><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter bills by status"><option value="all">All statuses</option><option value="pending">Pending</option><option value="paid">Paid</option><option value="cancelled">Cancelled</option></select><button className="button primary" onClick={() => setModal({ type: "bill" })}><Plus size={18}/> Add bill</button></div></div>
-    <section className="table-card">
-      <table className="data-table">
-        <thead><tr><th>Bill ID</th><th>Bill</th><th>Date</th><th>Status</th><th>Installments</th><th className="amount-cell">Billed</th><th className="amount-cell">Paid</th><th className="amount-cell">Left</th><th>History</th><th>Actions</th></tr></thead>
-        <tbody>{visibleBills.map((bill) => {
-      const billCredits = credits.filter((c) => c.billId === bill.id); const billPaid = billCredits.reduce((s, c) => s + Number(c.amount), 0);
-      const left = Number(bill.amount) - billPaid; const billWithId = { ...bill, billId: bill.billId || customer.billId || "" };
-      return <tr key={bill.id}>
-        <td><span className="table-code">{billWithId.billId || "-"}</span></td>
-        <td><div className="entity-cell"><span className="person-icon compact"><ReceiptText size={18}/></span><strong>{bill.description}</strong></div></td>
-        <td>{formatDate(bill.billDate)}</td>
-        <td><span className={`badge ${bill.status === "paid" ? "paid" : "pending"}`}>{bill.status || "pending"}</span></td>
-        <td>{billCredits.length}</td>
-        <td className="amount-cell"><strong>{formatCurrency(bill.amount)}</strong></td>
-        <td className="amount-cell green">{formatCurrency(billPaid)}</td>
-        <td className="amount-cell">{formatCurrency(left)}</td>
-        <td><button className="text-button" onClick={() => setHistory({ title: bill.description, ids: [bill.id], amountOnly: true })}><History size={15}/> View</button></td>
-        <td className="action-cell wide"><button className="icon-link" onClick={() => setEditing({ type: "bill", item: billWithId })} aria-label={`Edit ${bill.description}`}><Edit3 size={16}/></button><button className="icon-link danger" onClick={() => setDeleting({ item: billWithId })} aria-label={`Delete ${bill.description}`}><Trash2 size={16}/></button><Link href={`/bills/${bill.id}`} className="icon-link" aria-label={`Open ${bill.description}`}><ArrowUpRight size={17}/></Link></td>
-      </tr>;
-    })}</tbody>
-      </table>
-    </section>
-    {!visibleBills.length && <div className="card empty-card"><div className="empty-icon"><ReceiptText/></div><h2>No bills found</h2><p>Add a bill or change the status filter.</p></div>}
+    <div className="section-heading"><div><h2>Bills & installments</h2><p>Add payments against a specific bill and follow its timeline.</p></div><Button icon={<Plus size={18}/>} onClick={() => setModal({ type: "bill" })}>Add bill</Button></div>
+    <Table tableId="customer-bills" columns={columns} rows={bills} rowKey={(bill) => bill.id} emptyState={<EmptyState card={false} icon={<ReceiptText/>} title="No bills found" description="Add a bill or change the filters."/>}/>
     <Modal open={modal?.type === "bill"} onClose={() => setModal(null)} title="Add a bill" subtitle={`Create a new bill for ${customer.name}.`}><EntryForm type="bill" onSubmit={saveBill}/></Modal>
     <Modal open={modal?.type === "credit"} onClose={() => setModal(null)} title="Record a payment" subtitle="Add a manual installment against this bill."><EntryForm type="credit" onSubmit={saveCredit}/></Modal>
     <Modal open={modal?.type === "customer"} onClose={() => setModal(null)} title="Correct customer details" subtitle="Every edit is recorded; a reason is optional."><CustomerForm initial={customer} showReason submitLabel="Save correction" onSubmit={saveCustomer}/></Modal>
     <Modal open={!!editing} onClose={() => setEditing(null)} title={`Correct ${editing?.type || "entry"}`} subtitle="The original and corrected values will remain in history.">{editing && <EntryForm type={editing.type} initial={editing.item} showReason onSubmit={saveEdit}/>}</Modal>
-    <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete bill" subtitle="It will be removed from the ledger; the record and audit trail are kept.">
-      {deleting && <div className="form-grid">
-        <p className="full">Are you sure you want to delete this bill?</p>
-        <label className="full">Reason<textarea value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Explain why this is being deleted (optional)"/></label>
-        <div className="full confirm-actions">
-          <button className="button secondary" onClick={() => setDeleting(null)} disabled={deleteBusy}>Cancel</button>
-          <button className="button danger" onClick={confirmDelete} disabled={deleteBusy}>{deleteBusy ? "Deleting…" : "Delete"}</button>
-        </div>
-      </div>}
-    </Modal>
-    <HistoryDrawer open={!!history} onClose={() => setHistory(null)} title={history?.title} audits={ledger.audits} entityIds={history?.ids || []} amountOnly={history?.amountOnly}/>
+    <ConfirmDialog open={!!deleting} onCancel={() => setDeleting(null)} onConfirm={confirmDelete} busy={deleteBusy} title="Delete bill" subtitle="It will be removed from the ledger; the record and audit trail are kept." itemLabel="bill" reason={deleteReason} onReasonChange={setDeleteReason}/>
+    <HistoryDrawer open={!!history} onClose={() => setHistory(null)} title={history?.title} audits={audits} entityIds={history?.ids || []} amountOnly={history?.amountOnly}/>
   </AppShell>;
 }
 
@@ -88,7 +81,7 @@ function HistoryDrawer({ open, onClose, title, audits, entityIds, amountOnly }) 
   return <aside className={`side-drawer ${open ? "open" : ""}`} aria-hidden={!open}>
     <button className="drawer-scrim" onClick={onClose} aria-label="Close history" />
     <section className="drawer-panel">
-      <div className="drawer-head"><div><span className="eyebrow">History</span><h2>{title || "Correction history"}</h2></div><button className="icon-link" onClick={onClose} aria-label="Close history">X</button></div>
+      <div className="drawer-head"><div><span className="eyebrow">History</span><h2>{title || "Correction history"}</h2></div><Button variant="secondary" size="sm" onClick={onClose}>Close</Button></div>
       <AuditHistory audits={audits} entityIds={entityIds} amountOnly={amountOnly}/>
     </section>
   </aside>;
@@ -96,7 +89,7 @@ function HistoryDrawer({ open, onClose, title, audits, entityIds, amountOnly }) 
 
 function AuditHistory({ audits, entityIds, amountOnly = false }) {
   const entries = audits.filter((a) => entityIds.includes(a.entityId) && (!amountOnly || a.changes?.before?.amount !== undefined)).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-  if (!entries.length) return <div className="empty-card"><div className="empty-icon"><History/></div><h3>No corrections made</h3><p>Any future edits and their reasons will appear here.</p></div>;
+  if (!entries.length) return <EmptyState card={false} titleAs="h3" icon={<History/>} title="No corrections made" description="Any future edits and their reasons will appear here."/>;
   return <div className="audit-list">{entries.map((audit) => {
     const changes = changedFields(audit);
     return <article key={audit.id}><div className="audit-dot"/><div><div className="audit-meta"><span>{audit.entityType} corrected</span><time>{formatDateTime(audit.createdAt)}</time></div><strong>{audit.reason}</strong>{changes.length ? <ChangeTable changes={changes}/> : <p>No field-level change detected.</p>}</div></article>;

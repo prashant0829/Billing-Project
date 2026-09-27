@@ -3,21 +3,25 @@
 import { useState } from "react";
 import { today } from "@/lib/formatters";
 import { validAmount } from "@/lib/validation";
+import Button from "./ui/Button";
 
-export default function EntryForm({ type, initial, showReason = false, onSubmit }) {
+export default function EntryForm({ type, initial, showReason = false, customers, onSubmit }) {
   const isBill = type === "bill";
-  const defaults = isBill ? { billId: "", description: "", amount: "", billDate: today(), status: "pending" } : { amount: "", paidAt: today(), note: "" };
+  const defaults = isBill
+    ? { billId: "", description: "", amount: "", billDate: today(), status: "pending", ...(customers ? { customerId: "" } : {}) }
+    : { amount: "", paidAt: today(), note: "" };
   const normalizedInitial = isBill && initial ? { ...initial, status: String(initial.status || "pending").toLowerCase() } : initial;
   const [values, setValues] = useState({ ...defaults, ...normalizedInitial }); const [reason, setReason] = useState("");
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const change = (key) => (e) => setValues({ ...values, [key]: e.target.value });
   async function submit(event) {
     event.preventDefault();
-    if (!validAmount(values.amount) || (isBill && (!values.billId.trim() || !values.description.trim()))) return setError("Complete all required fields with a valid positive amount.");
+    if (!validAmount(values.amount) || (isBill && (!values.billId.trim() || !values.description.trim())) || (isBill && customers && !values.customerId)) return setError("Complete all required fields with a valid positive amount.");
     setBusy(true); setError("");
     try { await onSubmit(values, reason); } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
   return <form className="form-grid" onSubmit={submit}>
+    {isBill && customers && <label className="full">Customer <b>*</b><select value={values.customerId || ""} onChange={change("customerId")}><option value="" disabled>Select a customer…</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
     {isBill && <label>Bill ID <b>*</b><input value={values.billId} onChange={change("billId")} placeholder="BILL-2026-001" /></label>}
     {isBill && <label>Status <b>*</b><select value={values.status || "pending"} onChange={change("status")}><option value="pending">Pending</option><option value="paid">Paid</option><option value="cancelled">Cancelled</option></select></label>}
     {isBill && <label className="full">Order / bill description <b>*</b><input value={values.description} onChange={change("description")} placeholder="What was this bill for?" /></label>}
@@ -26,6 +30,6 @@ export default function EntryForm({ type, initial, showReason = false, onSubmit 
     {!isBill && <label className="full">Payment note<textarea value={values.note} onChange={change("note")} placeholder="Cash, UPI reference, etc. (optional)" /></label>}
     {showReason && <label className="full">Reason for correction<textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Explain what was corrected and why (optional)" /></label>}
     {error && <p className="error full">{error}</p>}
-    <button className="button primary full" disabled={busy}>{busy ? "Saving…" : showReason ? "Save correction" : isBill ? "Add bill" : "Record payment"}</button>
+    <Button className="full" busy={busy}>{showReason ? "Save correction" : isBill ? "Add bill" : "Record payment"}</Button>
   </form>;
 }

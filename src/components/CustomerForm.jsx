@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { validateCustomer } from "@/lib/validation";
+import Button from "./ui/Button";
 
 const empty = { name: "", primaryContact: "", secondaryContact: "" };
 
@@ -21,6 +22,6 @@ export default function CustomerForm({ initial = empty, onSubmit, submitLabel = 
     <label>Secondary contact<input value={values.secondaryContact} onChange={change("secondaryContact")} placeholder="Optional" /></label>
     {showReason && <label className="full">Reason for correction<textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Explain what was corrected and why (optional)" /></label>}
     {error && <p className="error full">{error}</p>}
-    <button className="button primary full" disabled={busy}>{busy ? "Saving…" : submitLabel}</button>
+    <Button className="full" busy={busy}>{submitLabel}</Button>
   </form>;
 }

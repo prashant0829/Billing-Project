@@ -1,47 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { ArrowUpRight, Edit3, Plus, Search, UserRound } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useSelector } from "react-redux";
+import { ArrowUpRight, Edit3, Plus, UserRound } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import Modal from "@/components/Modal";
 import CustomerForm from "@/components/CustomerForm";
+import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
+import EmptyState from "@/components/ui/EmptyState";
+import RowActions from "@/components/ui/RowActions";
+import Table from "@/components/ui/Table";
 import { useAuth } from "@/context/AuthContext";
-import { createCustomer, getLedger, listCustomers, updateCustomer } from "@/services/billingService";
+import { createCustomer, updateCustomer } from "@/services/billingService";
 import { formatCurrency } from "@/lib/formatters";
 
 export default function CustomersPage() {
-  const { effectiveUid } = useAuth(); const [customers, setCustomers] = useState([]); const [ledger, setLedger] = useState({ bills: [], credits: [] });
-  const [open, setOpen] = useState(false); const [editing, setEditing] = useState(null); const [search, setSearch] = useState("");
-  const load = useCallback(async () => { if (!effectiveUid) return; const [people, entries] = await Promise.all([listCustomers(effectiveUid), getLedger(effectiveUid)]); setCustomers(people); setLedger(entries); }, [effectiveUid]);
-  useEffect(() => { if (effectiveUid) Promise.all([listCustomers(effectiveUid), getLedger(effectiveUid)]).then(([people, entries]) => { setCustomers(people); setLedger(entries); }); }, [effectiveUid]);
-  const filtered = customers.filter((c) => `${c.name} ${c.primaryContact}`.toLowerCase().includes(search.toLowerCase()));
-  const billCount = useMemo(() => (customerId) => ledger.bills.filter((b) => b.customerId === customerId).length, [ledger.bills]);
+  const { effectiveUid } = useAuth();
+  const { customers, bills, credits } = useSelector((s) => s.data);
+  const [open, setOpen] = useState(false); const [editing, setEditing] = useState(null);
+  const billCount = useMemo(() => (customerId) => bills.filter((b) => b.customerId === customerId).length, [bills]);
   const balance = useMemo(() => (customerId) => {
-    const ids = ledger.bills.filter((b) => b.customerId === customerId).map((b) => b.id);
-    return ledger.bills.filter((b) => b.customerId === customerId).reduce((s, b) => s + Number(b.amount), 0) - ledger.credits.filter((c) => ids.includes(c.billId)).reduce((s, c) => s + Number(c.amount), 0);
-  }, [ledger]);
-  async function add(values) { await createCustomer(effectiveUid, values); setOpen(false); await load(); }
-  async function saveCustomer(values, reason) { await updateCustomer(effectiveUid, editing.id, editing, values, reason); setEditing(null); await load(); }
-  return <AppShell title="Customers" subtitle="Every person, bill, and payment in one clear place." action={<button className="button primary" onClick={() => setOpen(true)}><Plus size={18}/> Add customer</button>}>
-    <div className="toolbar"><div className="search"><Search size={18}/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or contact" /></div><span>{filtered.length} customers</span></div>
-    <section className="table-card">
-      <table className="data-table">
-        <thead><tr><th>Customer</th><th>Contact</th><th>Bills</th><th>Status</th><th className="amount-cell">Balance</th><th>Actions</th></tr></thead>
-        <tbody>{filtered.map((customer) => {
-          const currentBalance = balance(customer.id);
-          return <tr key={customer.id}>
-            <td><div className="entity-cell"><span className="person-icon compact"><UserRound size={18}/></span><strong>{customer.name}</strong></div></td>
-            <td>{customer.primaryContact}</td>
-            <td>{billCount(customer.id)}</td>
-            <td><span className={currentBalance > 0 ? "badge pending" : "badge paid"}>{currentBalance > 0 ? "Pending" : "Settled"}</span></td>
-            <td className="amount-cell"><strong>{formatCurrency(currentBalance)}</strong></td>
-            <td className="action-cell wide"><button className="icon-link" onClick={() => setEditing(customer)} aria-label={`Edit ${customer.name}`}><Edit3 size={16}/></button><Link href={`/customers/${customer.id}`} className="icon-link" aria-label={`Open ${customer.name}`}><ArrowUpRight size={17}/></Link></td>
-          </tr>;
-        })}</tbody>
-      </table>
-    </section>
-    {!filtered.length && <div className="card empty-card"><div className="empty-icon"><UserRound/></div><h2>No customers found</h2><p>Add your first customer to begin a billing ledger.</p></div>}
+    const ids = bills.filter((b) => b.customerId === customerId).map((b) => b.id);
+    return bills.filter((b) => b.customerId === customerId).reduce((s, b) => s + Number(b.amount), 0) - credits.filter((c) => ids.includes(c.billId)).reduce((s, c) => s + Number(c.amount), 0);
+  }, [bills, credits]);
+  async function add(values) { await createCustomer(effectiveUid, values); setOpen(false); }
+  async function saveCustomer(values, reason) { await updateCustomer(effectiveUid, editing.id, editing, values, reason); setEditing(null); }
+  const columns = [
+    { key: "name", label: "Customer", pinned: true, width: 190, sortable: true, filterable: true, filterValue: (c) => c.name, sortValue: (c) => c.name, render: (c) => <div className="entity-cell"><span className="person-icon compact"><UserRound size={16}/></span>{c.name}</div> },
+    { key: "contact", label: "Contact", width: 150, sortable: true, filterable: true, filterValue: (c) => c.primaryContact, sortValue: (c) => c.primaryContact, render: (c) => c.primaryContact },
+    { key: "bills", label: "Bills", align: "right", width: 90, sortable: true, sortValue: (c) => billCount(c.id), render: (c) => billCount(c.id) },
+    { key: "status", label: "Status", width: 110, sortable: true, sortValue: (c) => balance(c.id) > 0 ? 1 : 0, render: (c) => <Badge tone={balance(c.id) > 0 ? "pending" : "paid"}>{balance(c.id) > 0 ? "Pending" : "Settled"}</Badge> },
+    { key: "balance", label: "Balance", align: "right", width: 120, sortable: true, sortValue: (c) => balance(c.id), render: (c) => formatCurrency(balance(c.id)) },
+    { key: "actions", label: "Actions", align: "right", width: 90, hideable: false, render: (c) => <RowActions actions={[
+      { label: "Edit", icon: <Edit3 size={15}/>, onClick: () => setEditing(c) },
+      { label: "Open", icon: <ArrowUpRight size={15}/>, href: `/customers/${c.id}` },
+    ]}/> },
+  ];
+  return <AppShell title="Customers" subtitle="Every person, bill, and payment in one clear place." action={<Button icon={<Plus size={18}/>} onClick={() => setOpen(true)}>Add customer</Button>}>
+    <Table tableId="customers" columns={columns} rows={customers} rowKey={(c) => c.id} emptyState={<EmptyState card={false} icon={<UserRound/>} title="No customers found" description="Add your first customer to begin a billing ledger."/>}/>
     <Modal open={open} onClose={() => setOpen(false)} title="Add a customer" subtitle="The first three fields are mandatory."><CustomerForm onSubmit={add}/></Modal>
     <Modal open={!!editing} onClose={() => setEditing(null)} title="Correct customer details" subtitle="Every edit is recorded; a reason is optional.">{editing && <CustomerForm initial={editing} showReason submitLabel="Save correction" onSubmit={saveCustomer}/>}</Modal>
   </AppShell>;

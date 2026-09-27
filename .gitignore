@@ -4,3 +4,7 @@ node_modules/
 !.env.example
 npm-debug.log*
 .DS_Store
+AGENTS.md
+CLAUDE.md
+firestore.rules
+prompts/
