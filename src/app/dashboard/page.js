@@ -9,8 +9,8 @@ import { getLedger, listCustomers } from "@/services/billingService";
 import { formatCurrency } from "@/lib/formatters";
 
 export default function Dashboard() {
-  const { user } = useAuth(); const [data, setData] = useState({ customers: [], bills: [], credits: [] });
-  useEffect(() => { if (user) Promise.all([listCustomers(user.uid), getLedger(user.uid)]).then(([customers, ledger]) => setData({ customers, ...ledger })); }, [user]);
+  const { effectiveUid } = useAuth(); const [data, setData] = useState({ customers: [], bills: [], credits: [] });
+  useEffect(() => { if (effectiveUid) Promise.all([listCustomers(effectiveUid), getLedger(effectiveUid)]).then(([customers, ledger]) => setData({ customers, ...ledger })); }, [effectiveUid]);
   const totals = useMemo(() => {
     const billed = data.bills.reduce((sum, item) => sum + Number(item.amount), 0);
     const paid = data.credits.reduce((sum, item) => sum + Number(item.amount), 0);

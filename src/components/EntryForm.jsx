@@ -4,7 +4,7 @@ import { useState } from "react";
 import { today } from "@/lib/formatters";
 import { validAmount } from "@/lib/validation";
 
-export default function EntryForm({ type, initial, requireReason = false, onSubmit }) {
+export default function EntryForm({ type, initial, showReason = false, onSubmit }) {
   const isBill = type === "bill";
   const defaults = isBill ? { billId: "", description: "", amount: "", billDate: today(), status: "pending" } : { amount: "", paidAt: today(), note: "" };
   const normalizedInitial = isBill && initial ? { ...initial, status: String(initial.status || "pending").toLowerCase() } : initial;
@@ -13,7 +13,7 @@ export default function EntryForm({ type, initial, requireReason = false, onSubm
   const change = (key) => (e) => setValues({ ...values, [key]: e.target.value });
   async function submit(event) {
     event.preventDefault();
-    if (!validAmount(values.amount) || (isBill && (!values.billId.trim() || !values.description.trim())) || (requireReason && !reason.trim())) return setError("Complete all required fields with a valid positive amount.");
+    if (!validAmount(values.amount) || (isBill && (!values.billId.trim() || !values.description.trim()))) return setError("Complete all required fields with a valid positive amount.");
     setBusy(true); setError("");
     try { await onSubmit(values, reason); } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
@@ -24,8 +24,8 @@ export default function EntryForm({ type, initial, requireReason = false, onSubm
     <label>Amount (₹) <b>*</b><input type="number" min="0.01" step="0.01" value={values.amount} onChange={change("amount")} placeholder="0.00" /></label>
     <label>{isBill ? "Bill generated on" : "Payment date"} <b>*</b><input type="date" value={isBill ? values.billDate : values.paidAt} onChange={change(isBill ? "billDate" : "paidAt")} /></label>
     {!isBill && <label className="full">Payment note<textarea value={values.note} onChange={change("note")} placeholder="Cash, UPI reference, etc. (optional)" /></label>}
-    {requireReason && <label className="full">Reason for correction <b>*</b><textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Explain what was corrected and why" /></label>}
+    {showReason && <label className="full">Reason for correction<textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Explain what was corrected and why (optional)" /></label>}
     {error && <p className="error full">{error}</p>}
-    <button className="button primary full" disabled={busy}>{busy ? "Saving…" : requireReason ? "Save correction" : isBill ? "Add bill" : "Record payment"}</button>
+    <button className="button primary full" disabled={busy}>{busy ? "Saving…" : showReason ? "Save correction" : isBill ? "Add bill" : "Record payment"}</button>
   </form>;
 }

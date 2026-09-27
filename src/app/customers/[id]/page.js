@@ -2,32 +2,37 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, Banknote, Edit3, History, Plus, ReceiptText } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Banknote, Edit3, History, Plus, ReceiptText, Trash2 } from "lucide-react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Modal from "@/components/Modal";
 import CustomerForm from "@/components/CustomerForm";
 import EntryForm from "@/components/EntryForm";
 import { useAuth } from "@/context/AuthContext";
-import { addCredit, createBill, getLedger, listCustomers, updateCustomer, updateEntry } from "@/services/billingService";
+import { addCredit, createBill, deleteEntry, getLedger, listCustomers, updateCustomer, updateEntry } from "@/services/billingService";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 
 export default function CustomerDetail() {
-  const { id } = useParams(); const { user } = useAuth();
+  const { id } = useParams(); const { effectiveUid } = useAuth();
   const [customer, setCustomer] = useState(null); const [ledger, setLedger] = useState({ bills: [], credits: [], audits: [] });
   const [modal, setModal] = useState(null); const [editing, setEditing] = useState(null); const [history, setHistory] = useState(null);
+  const [deleting, setDeleting] = useState(null); const [deleteReason, setDeleteReason] = useState(""); const [deleteBusy, setDeleteBusy] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
-  const load = useCallback(async () => { if (!user) return; const [people, all] = await Promise.all([listCustomers(user.uid), getLedger(user.uid)]); setCustomer(people.find((p) => p.id === id)); setLedger(all); }, [id, user]);
-  useEffect(() => { if (user) Promise.all([listCustomers(user.uid), getLedger(user.uid)]).then(([people, all]) => { setCustomer(people.find((p) => p.id === id)); setLedger(all); }); }, [id, user]);
+  const load = useCallback(async () => { if (!effectiveUid) return; const [people, all] = await Promise.all([listCustomers(effectiveUid), getLedger(effectiveUid)]); setCustomer(people.find((p) => p.id === id)); setLedger(all); }, [id, effectiveUid]);
+  useEffect(() => { if (effectiveUid) Promise.all([listCustomers(effectiveUid), getLedger(effectiveUid)]).then(([people, all]) => { setCustomer(people.find((p) => p.id === id)); setLedger(all); }); }, [id, effectiveUid]);
   const bills = useMemo(() => ledger.bills.filter((b) => b.customerId === id).sort((a, b) => entryTime(b.createdAt) - entryTime(a.createdAt)), [id, ledger.bills]);
   const visibleBills = useMemo(() => bills.filter((bill) => statusFilter === "all" || (bill.status || "pending") === statusFilter), [bills, statusFilter]);
   const billIds = useMemo(() => bills.map((b) => b.id), [bills]);
   const credits = useMemo(() => ledger.credits.filter((c) => billIds.includes(c.billId)).sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt))), [billIds, ledger.credits]);
   const total = bills.reduce((s, b) => s + Number(b.amount), 0); const paid = credits.reduce((s, c) => s + Number(c.amount), 0);
-  async function saveBill(values) { await createBill(user.uid, id, values); setModal(null); await load(); }
-  async function saveCredit(values) { await addCredit(user.uid, modal.billId, values); setModal(null); await load(); }
-  async function saveCustomer(values, reason) { await updateCustomer(user.uid, id, customer, values, reason); setModal(null); await load(); }
-  async function saveEdit(values, reason) { const collectionName = editing.type === "bill" ? "bills" : "credits"; await updateEntry(user.uid, collectionName, editing.item.id, editing.item, values, reason); setEditing(null); await load(); }
+  async function saveBill(values) { await createBill(effectiveUid, id, values); setModal(null); await load(); }
+  async function saveCredit(values) { await addCredit(effectiveUid, modal.billId, values); setModal(null); await load(); }
+  async function saveCustomer(values, reason) { await updateCustomer(effectiveUid, id, customer, values, reason); setModal(null); await load(); }
+  async function saveEdit(values, reason) { const collectionName = editing.type === "bill" ? "bills" : "credits"; await updateEntry(effectiveUid, collectionName, editing.item.id, editing.item, values, reason); setEditing(null); await load(); }
+  async function confirmDelete() {
+    setDeleteBusy(true);
+    try { await deleteEntry(effectiveUid, "bills", deleting.item.id, deleting.item, deleteReason); setDeleting(null); setDeleteReason(""); await load(); } finally { setDeleteBusy(false); }
+  }
   if (!customer) return <AppShell title="Customer ledger" subtitle="Loading customer..."><div className="spinner" /></AppShell>;
   return <AppShell title={customer.name} subtitle={customer.primaryContact} action={<button className="button secondary" onClick={() => setModal({ type: "customer" })}><Edit3 size={17}/> Edit details</button>}>
     <Link href="/customers" className="back-link"><ArrowLeft size={16}/> All customers</Link>
@@ -49,7 +54,7 @@ export default function CustomerDetail() {
         <td className="amount-cell green">{formatCurrency(billPaid)}</td>
         <td className="amount-cell">{formatCurrency(left)}</td>
         <td><button className="text-button" onClick={() => setHistory({ title: bill.description, ids: [bill.id], amountOnly: true })}><History size={15}/> View</button></td>
-        <td className="action-cell wide"><button className="icon-link" onClick={() => setEditing({ type: "bill", item: billWithId })} aria-label={`Edit ${bill.description}`}><Edit3 size={16}/></button><Link href={`/bills/${bill.id}`} className="icon-link" aria-label={`Open ${bill.description}`}><ArrowUpRight size={17}/></Link></td>
+        <td className="action-cell wide"><button className="icon-link" onClick={() => setEditing({ type: "bill", item: billWithId })} aria-label={`Edit ${bill.description}`}><Edit3 size={16}/></button><button className="icon-link danger" onClick={() => setDeleting({ item: billWithId })} aria-label={`Delete ${bill.description}`}><Trash2 size={16}/></button><Link href={`/bills/${bill.id}`} className="icon-link" aria-label={`Open ${bill.description}`}><ArrowUpRight size={17}/></Link></td>
       </tr>;
     })}</tbody>
       </table>
@@ -57,8 +62,18 @@ export default function CustomerDetail() {
     {!visibleBills.length && <div className="card empty-card"><div className="empty-icon"><ReceiptText/></div><h2>No bills found</h2><p>Add a bill or change the status filter.</p></div>}
     <Modal open={modal?.type === "bill"} onClose={() => setModal(null)} title="Add a bill" subtitle={`Create a new bill for ${customer.name}.`}><EntryForm type="bill" onSubmit={saveBill}/></Modal>
     <Modal open={modal?.type === "credit"} onClose={() => setModal(null)} title="Record a payment" subtitle="Add a manual installment against this bill."><EntryForm type="credit" onSubmit={saveCredit}/></Modal>
-    <Modal open={modal?.type === "customer"} onClose={() => setModal(null)} title="Correct customer details" subtitle="Every edit requires a reason and is recorded."><CustomerForm initial={customer} requireReason submitLabel="Save correction" onSubmit={saveCustomer}/></Modal>
-    <Modal open={!!editing} onClose={() => setEditing(null)} title={`Correct ${editing?.type || "entry"}`} subtitle="The original and corrected values will remain in history.">{editing && <EntryForm type={editing.type} initial={editing.item} requireReason onSubmit={saveEdit}/>}</Modal>
+    <Modal open={modal?.type === "customer"} onClose={() => setModal(null)} title="Correct customer details" subtitle="Every edit is recorded; a reason is optional."><CustomerForm initial={customer} showReason submitLabel="Save correction" onSubmit={saveCustomer}/></Modal>
+    <Modal open={!!editing} onClose={() => setEditing(null)} title={`Correct ${editing?.type || "entry"}`} subtitle="The original and corrected values will remain in history.">{editing && <EntryForm type={editing.type} initial={editing.item} showReason onSubmit={saveEdit}/>}</Modal>
+    <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete bill" subtitle="It will be removed from the ledger; the record and audit trail are kept.">
+      {deleting && <div className="form-grid">
+        <p className="full">Are you sure you want to delete this bill?</p>
+        <label className="full">Reason<textarea value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Explain why this is being deleted (optional)"/></label>
+        <div className="full confirm-actions">
+          <button className="button secondary" onClick={() => setDeleting(null)} disabled={deleteBusy}>Cancel</button>
+          <button className="button danger" onClick={confirmDelete} disabled={deleteBusy}>{deleteBusy ? "Deleting…" : "Delete"}</button>
+        </div>
+      </div>}
+    </Modal>
     <HistoryDrawer open={!!history} onClose={() => setHistory(null)} title={history?.title} audits={ledger.audits} entityIds={history?.ids || []} amountOnly={history?.amountOnly}/>
   </AppShell>;
 }

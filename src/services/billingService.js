@@ -1,10 +1,19 @@
-import { addDoc, collection, doc, getDocs, orderBy, query, runTransaction, serverTimestamp, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDocs, orderBy, query, runTransaction, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 const userCollection = (uid, name) => collection(db, "users", uid, name);
 const auditPayload = (entityType, entityId, action, reason, changes) => ({
   entityType, entityId, action, reason, changes, createdAt: serverTimestamp(),
 });
+
+export async function ensureUserProfile(uid, email) {
+  await setDoc(doc(db, "users", uid), { email, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function listUserProfiles() {
+  const snapshot = await getDocs(collection(db, "users"));
+  return snapshot.docs.map((item) => ({ uid: item.id, ...item.data() })).filter((item) => item.email);
+}
 
 export async function listCustomers(uid) {
   const snapshot = await getDocs(query(userCollection(uid, "customers"), orderBy("createdAt", "desc")));
@@ -30,7 +39,7 @@ export async function updateCustomer(uid, customerId, previous, values, reason) 
 
 export async function createBill(uid, customerId, values) {
   const duplicate = await getDocs(query(userCollection(uid, "bills"), where("billId", "==", values.billId.trim())));
-  if (!duplicate.empty) throw new Error("This bill ID is already in use.");
+  if (duplicate.docs.some((item) => !item.data().deleted)) throw new Error("This bill ID is already in use.");
   return addDoc(userCollection(uid, "bills"), {
     customerId, billId: values.billId.trim(), description: values.description.trim(), amount: Number(values.amount), status: values.status || "pending",
     billDate: values.billDate, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
@@ -62,11 +71,20 @@ export async function updateEntry(uid, collectionName, id, previous, values, rea
   });
 }
 
+export async function deleteEntry(uid, collectionName, id, previous, reason) {
+  const ref = doc(db, "users", uid, collectionName, id);
+  const auditRef = doc(userCollection(uid, "audits"));
+  await runTransaction(db, async (tx) => {
+    tx.update(ref, { deleted: true, deletedAt: serverTimestamp(), deleteReason: reason || "" });
+    tx.set(auditRef, auditPayload(collectionName.slice(0, -1), id, "deleted", reason, { before: previous, after: null }));
+  });
+}
+
 export async function getLedger(uid) {
   const names = ["bills", "credits", "audits"];
   const [bills, credits, audits] = await Promise.all(names.map(async (name) => {
     const snapshot = await getDocs(userCollection(uid, name));
     return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
   }));
-  return { bills, credits, audits };
+  return { bills: bills.filter((item) => !item.deleted), credits: credits.filter((item) => !item.deleted), audits };
 }

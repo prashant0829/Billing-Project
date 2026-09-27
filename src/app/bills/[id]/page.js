@@ -1,22 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Banknote, Edit3, History, Plus, ReceiptText } from "lucide-react";
+import { ArrowLeft, Banknote, Edit3, History, Plus, ReceiptText, Trash2 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import EntryForm from "@/components/EntryForm";
 import Modal from "@/components/Modal";
 import { useAuth } from "@/context/AuthContext";
-import { addCredit, getLedger, listCustomers, updateEntry } from "@/services/billingService";
+import { addCredit, deleteEntry, getLedger, listCustomers, updateEntry } from "@/services/billingService";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/formatters";
 
 export default function BillDetail() {
-  const { id } = useParams(); const { user } = useAuth();
+  const { id } = useParams(); const { effectiveUid } = useAuth(); const router = useRouter();
   const [data, setData] = useState({ customers: [], bills: [], credits: [], audits: [] });
   const [modal, setModal] = useState(null); const [editing, setEditing] = useState(null); const [history, setHistory] = useState(null);
-  const load = useCallback(async () => { if (!user) return; const [customers, ledger] = await Promise.all([listCustomers(user.uid), getLedger(user.uid)]); setData({ customers, ...ledger }); }, [user]);
-  useEffect(() => { if (user) Promise.all([listCustomers(user.uid), getLedger(user.uid)]).then(([customers, ledger]) => setData({ customers, ...ledger })); }, [user]);
+  const [deleting, setDeleting] = useState(null); const [deleteReason, setDeleteReason] = useState(""); const [deleteBusy, setDeleteBusy] = useState(false);
+  const load = useCallback(async () => { if (!effectiveUid) return; const [customers, ledger] = await Promise.all([listCustomers(effectiveUid), getLedger(effectiveUid)]); setData({ customers, ...ledger }); }, [effectiveUid]);
+  useEffect(() => { if (effectiveUid) Promise.all([listCustomers(effectiveUid), getLedger(effectiveUid)]).then(([customers, ledger]) => setData({ customers, ...ledger })); }, [effectiveUid]);
   const bill = useMemo(() => data.bills.find((item) => item.id === id), [data.bills, id]);
   const customer = useMemo(() => data.customers.find((item) => item.id === bill?.customerId), [bill, data.customers]);
   const credits = useMemo(() => data.credits.filter((item) => item.billId === id).sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt))), [data.credits, id]);
@@ -29,8 +30,17 @@ export default function BillDetail() {
   }, [bill, credits]);
   const paid = credits.reduce((sum, item) => sum + Number(item.amount), 0);
   const billWithId = useMemo(() => bill ? { ...bill, billId: bill.billId || customer?.billId || "" } : null, [bill, customer]);
-  async function saveCredit(values) { await addCredit(user.uid, id, values); setModal(null); await load(); }
-  async function saveEdit(values, reason) { const collectionName = editing.type === "bill" ? "bills" : "credits"; await updateEntry(user.uid, collectionName, editing.item.id, editing.item, values, reason); setEditing(null); await load(); }
+  async function saveCredit(values) { await addCredit(effectiveUid, id, values); setModal(null); await load(); }
+  async function saveEdit(values, reason) { const collectionName = editing.type === "bill" ? "bills" : "credits"; await updateEntry(effectiveUid, collectionName, editing.item.id, editing.item, values, reason); setEditing(null); await load(); }
+  async function confirmDelete() {
+    const collectionName = deleting.type === "bill" ? "bills" : "credits";
+    setDeleteBusy(true);
+    try {
+      await deleteEntry(effectiveUid, collectionName, deleting.item.id, deleting.item, deleteReason);
+      if (deleting.type === "bill") return router.push(customer ? `/customers/${customer.id}` : "/customers");
+      setDeleting(null); setDeleteReason(""); await load();
+    } finally { setDeleteBusy(false); }
+  }
   if (!bill) return <AppShell title="Bill details" subtitle="Loading bill..."><div className="spinner" /></AppShell>;
   return <AppShell title={bill.description} subtitle={`${bill.billId || customer?.billId || "Bill"} - ${customer?.name || "Customer"} - ${formatDate(bill.billDate)}`} action={<button className="button primary" onClick={() => setModal({ type: "credit" })}><Plus size={18}/> Add payment</button>}>
     <Link href={customer ? `/customers/${customer.id}` : "/customers"} className="back-link"><ArrowLeft size={16}/> Back to customer</Link>
@@ -50,20 +60,30 @@ export default function BillDetail() {
           <td>{row.item.description}</td>
           <td className="amount-cell"><strong>{formatCurrency(row.item.amount)}</strong></td>
           <td><button className="text-button" onClick={() => setHistory({ title: "Original bill", ids: [row.item.id], amountOnly: true })}><History size={15}/> View</button></td>
-          <td className="action-cell"><button className="icon-link" onClick={() => setEditing({ type: "bill", item: billWithId })} aria-label="Correct bill"><Edit3 size={16}/></button></td>
+          <td className="action-cell wide"><button className="icon-link" onClick={() => setEditing({ type: "bill", item: billWithId })} aria-label="Correct bill"><Edit3 size={16}/></button><button className="icon-link danger" onClick={() => setDeleting({ type: "bill", item: billWithId })} aria-label="Delete bill"><Trash2 size={16}/></button></td>
         </tr> : <tr key={row.item.id}>
           <td><div className="entity-cell"><span className="transaction-icon"><Banknote size={17}/></span><strong>Payment received</strong></div></td>
           <td>{formatDate(row.item.paidAt)}</td>
           <td>{row.item.note || "-"}</td>
           <td className="amount-cell green"><strong>+ {formatCurrency(row.item.amount)}</strong></td>
           <td><button className="text-button" onClick={() => setHistory({ title: `Payment on ${formatDate(row.item.paidAt)}`, ids: [row.item.id] })}><History size={15}/> View</button></td>
-          <td className="action-cell"><button className="icon-link" onClick={() => setEditing({ type: "credit", item: row.item })} aria-label="Correct payment"><Edit3 size={16}/></button></td>
+          <td className="action-cell wide"><button className="icon-link" onClick={() => setEditing({ type: "credit", item: row.item })} aria-label="Correct payment"><Edit3 size={16}/></button><button className="icon-link danger" onClick={() => setDeleting({ type: "credit", item: row.item })} aria-label="Delete payment"><Trash2 size={16}/></button></td>
         </tr>)}</tbody>
       </table>
     </section>
     {!credits.length && <div className="card empty-card table-empty"><div className="empty-icon"><Banknote/></div><h2>No payments yet</h2><p>Record the first installment to start this bill’s transaction trail.</p></div>}
     <Modal open={modal?.type === "credit"} onClose={() => setModal(null)} title="Record a payment" subtitle="Add a manual installment against this bill."><EntryForm type="credit" onSubmit={saveCredit}/></Modal>
-    <Modal open={!!editing} onClose={() => setEditing(null)} title={`Correct ${editing?.type || "entry"}`} subtitle="The original and corrected values will remain in history.">{editing && <EntryForm type={editing.type} initial={editing.item} requireReason onSubmit={saveEdit}/>}</Modal>
+    <Modal open={!!editing} onClose={() => setEditing(null)} title={`Correct ${editing?.type || "entry"}`} subtitle="The original and corrected values will remain in history.">{editing && <EntryForm type={editing.type} initial={editing.item} showReason onSubmit={saveEdit}/>}</Modal>
+    <Modal open={!!deleting} onClose={() => setDeleting(null)} title={`Delete ${deleting?.type || "entry"}`} subtitle="It will be removed from the ledger; the record and audit trail are kept.">
+      {deleting && <div className="form-grid">
+        <p className="full">Are you sure you want to delete this {deleting.type === "bill" ? "bill" : "payment"}?</p>
+        <label className="full">Reason<textarea value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Explain why this is being deleted (optional)"/></label>
+        <div className="full confirm-actions">
+          <button className="button secondary" onClick={() => setDeleting(null)} disabled={deleteBusy}>Cancel</button>
+          <button className="button danger" onClick={confirmDelete} disabled={deleteBusy}>{deleteBusy ? "Deleting…" : "Delete"}</button>
+        </div>
+      </div>}
+    </Modal>
     <HistoryDrawer open={!!history} onClose={() => setHistory(null)} title={history?.title} audits={data.audits} entityIds={history?.ids || []} amountOnly={history?.amountOnly}/>
   </AppShell>;
 }
